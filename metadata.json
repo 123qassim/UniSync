@@ -1,0 +1,8 @@
+{
+  "name": "UniPath - Academic Discovery & Career Pathways",
+  "description": "The academic discovery and career-guidance component of UniSync. Explore degree courses, evaluate academic strengths, receive transparent career recommendations, and map practical roadmaps.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
