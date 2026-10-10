@@ -16,7 +16,7 @@ import {
   ZeroQCampusVoucher,
   ZeroQAuditLog,
   ZeroQNotification,
-} from '../types/zeroq';
+} from '../types/zeroq.ts';
 
 export const DEFAULT_PLACEMENT_RECORD: KUCCPSPlacementRecord = {
   studentName: 'Brian Otieno',

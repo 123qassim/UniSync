@@ -11,7 +11,7 @@ import {
   BrainMatePeerMatch,
   CommunityResource,
   AcademicComparisonCohort,
-} from '../types';
+} from '../types/index.ts';
 
 export const GRADING_SCALES: Record<string, GradingScale> = {
   percentage: {

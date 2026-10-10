@@ -5,8 +5,8 @@
  * based on degree relevance, completed units, declared interests, and optional marks.
  */
 
-import { Career, CareerRecommendation, StudentUnitEntry, Programme } from '../types';
-import { CAREERS } from '../data/mockData';
+import { Career, CareerRecommendation, StudentUnitEntry, Programme } from '../types/index.ts';
+import { CAREERS } from '../data/mockData.ts';
 
 export interface RecommendationInputs {
   programme: Programme;

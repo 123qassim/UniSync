@@ -13,8 +13,8 @@ import {
   AcademicComparisonCohort,
   UnitComparisonResult,
   GradingScaleType,
-} from '../types';
-import { DEMO_COMPARISON_COHORTS, GRADING_SCALES } from '../data/mockData';
+} from '../types/index.ts';
+import { DEMO_COMPARISON_COHORTS, GRADING_SCALES } from '../data/mockData.ts';
 
 export interface ComparisonAnalysis {
   results: UnitComparisonResult[];
