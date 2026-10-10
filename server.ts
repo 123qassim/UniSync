@@ -1423,7 +1423,9 @@ async function startServer() {
   const isProduction = process.env.NODE_ENV === 'production';
   const port = process.env.PORT || 3000;
 
-  if (isProduction) {
+  // Vercel serves the built SPA as static output. Its catch-all function imports
+  // this app only for /api requests, so it must not register the SPA fallback.
+  if (isProduction && !process.env.VERCEL) {
     app.use(express.static(path.resolve(__dirname, 'dist')));
     app.get('*', (req: Request, res: Response) => {
       res.sendFile(path.resolve(__dirname, 'dist', 'index.html'));
@@ -1444,4 +1446,9 @@ async function startServer() {
   });
 }
 
-startServer();
+export { app };
+export default app;
+
+if (!process.env.VERCEL) {
+  startServer();
+}
