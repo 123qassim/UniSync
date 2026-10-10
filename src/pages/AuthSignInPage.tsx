@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Compass, Lock, Mail, ArrowRight, ShieldCheck } from 'lucide-react';
 import { StudentProfile } from '../types';
+import { requestSignInCode } from '../lib/auth.ts';
 
 interface AuthSignInPageProps {
   onSignInSuccess: (profile: StudentProfile) => void;
@@ -25,19 +26,8 @@ export const AuthSignInPage: React.FC<AuthSignInPageProps> = ({
 
     setLoading(true);
     try {
-      const response = await fetch('/api/auth/sign-in', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email }),
-      });
-
-      if (!response.ok) {
-        throw new Error('Authentication request failed.');
-      }
-
-      const data = await response.json();
-      onSignInSuccess(data.profile);
-      onNavigate('/dashboard');
+      await requestSignInCode(email.trim());
+      setError('Check your email for the secure sign-in link.');
     } catch (err: any) {
       setError(err.message || 'Unable to sign in. Please try again.');
     } finally {

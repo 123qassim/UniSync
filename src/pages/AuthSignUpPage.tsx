@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Compass, Mail, User, ArrowRight, ShieldCheck } from 'lucide-react';
 import { StudentProfile } from '../types';
 import { UNIVERSITIES, DEMO_PROGRAMMES } from '../data/mockData';
+import { requestSignUpCode } from '../lib/auth.ts';
 
 interface AuthSignUpPageProps {
   onSignUpSuccess: (profile: StudentProfile) => void;
@@ -29,19 +30,8 @@ export const AuthSignUpPage: React.FC<AuthSignUpPageProps> = ({
 
     setLoading(true);
     try {
-      const response = await fetch('/api/auth/sign-up', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, displayName, universityId, programmeId }),
-      });
-
-      if (!response.ok) {
-        throw new Error('Registration failed.');
-      }
-
-      const data = await response.json();
-      onSignUpSuccess(data.profile);
-      onNavigate('/dashboard');
+      await requestSignUpCode(email.trim(), { displayName, universityId, programmeId });
+      setError('Check your email for the secure account link.');
     } catch (err: any) {
       setError(err.message || 'Unable to create account.');
     } finally {

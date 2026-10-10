@@ -13,6 +13,7 @@ import {
   Award
 } from 'lucide-react';
 import { StudentProfile, StudentConsent } from '../types';
+import { apiFetch } from '../lib/apiClient.ts';
 import { DemoDataBadge } from '../components/DemoDataBadge';
 
 interface ProfilePageProps {
@@ -37,7 +38,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
 
   const handleSaveConsent = async () => {
     try {
-      const response = await fetch('/api/profile/consent', {
+      const response = await apiFetch('/api/profile/consent', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(consent),
@@ -59,7 +60,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
   const handleDeleteVoluntaryData = async () => {
     setShowDeleteConfirm(false);
     try {
-      await fetch('/api/profile/data', { method: 'DELETE' });
+      await apiFetch('/api/profile/data', { method: 'DELETE' });
       onUpdateProfile({
         units: currentUser.units.map((u) => ({ ...u, mark: undefined })),
         interests: [],

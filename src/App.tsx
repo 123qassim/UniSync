@@ -35,6 +35,8 @@ import {
   GradingScaleType,
 } from './types';
 import { calculateCareerRecommendations } from './services/recommendationEngine';
+import { apiFetch } from './lib/apiClient.ts';
+import { supabase } from './lib/supabaseClient.ts';
 
 export default function App() {
   // Navigation State
@@ -108,21 +110,22 @@ export default function App() {
 
   // Check if session profile exists on mount
   useEffect(() => {
-    fetch('/api/profile')
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
-        if (data) {
-          // Keep as available demo profile
-          setCurrentUser(data);
-          if (data.units && data.units.length > 0) {
-            setSelectedUnits(data.units);
-          }
-          if (data.completedRoadmapSteps) {
-            setCompletedStepIds(data.completedRoadmapSteps);
-          }
-        }
-      })
-      .catch(() => {});
+    const loadProfile = async () => {
+      const { data } = await supabase.auth.getSession();
+      if (!data.session) return;
+      const response = await apiFetch('/api/profile');
+      if (!response.ok) return;
+      const profile = await response.json();
+      setCurrentUser(profile);
+      if (profile.units?.length > 0) setSelectedUnits(profile.units);
+      if (profile.completedRoadmapSteps) setCompletedStepIds(profile.completedRoadmapSteps);
+    };
+
+    void loadProfile();
+    const { data: listener } = supabase.auth.onAuthStateChange(() => {
+      void loadProfile();
+    });
+    return () => listener.subscription.unsubscribe();
   }, []);
 
   const handleNavigate = (route: string) => {

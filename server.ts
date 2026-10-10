@@ -7,6 +7,7 @@ import express, { Request, Response } from 'express';
 import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { getServerSupabase } from './server/supabase.ts';
 
 import {
   UNIVERSITIES,
@@ -109,6 +110,44 @@ let brainmateKarmaLedger: KarmaLedgerItem[] = JSON.parse(JSON.stringify(INITIAL_
 let brainmateCoursesReadiness: CourseExamInfo[] = JSON.parse(JSON.stringify(INITIAL_COURSES_READINESS));
 let brainmatePeerSchedules = JSON.parse(JSON.stringify(INITIAL_PEER_SCHEDULE_DATA));
 const requestRateTracker: { timestamp: number; recipientId: string }[] = [];
+
+type AuthenticatedRequest = Request & { user: { id: string; email?: string } };
+
+function toStudentProfile(row: Record<string, unknown>): StudentProfile {
+  return {
+    id: String(row.user_id),
+    email: String(row.email || ''),
+    displayName: String(row.display_name || 'Student'),
+    universityId: String(row.university_id || 'maseno'),
+    programmeId: String(row.programme_id || 'bsc-cs'),
+    currentYear: Number(row.current_year || 1),
+    currentSemester: Number(row.current_semester || 1),
+    gradingScale: (row.grading_scale || 'percentage') as StudentProfile['gradingScale'],
+    units: (row.units || []) as StudentProfile['units'],
+    interests: (row.interests || []) as string[],
+    skillsToDevelop: (row.skills_to_develop || []) as string[],
+    careerGoals: String(row.career_goals || ''),
+    consent: row.consent as StudentConsent,
+    savedRoadmapIds: (row.saved_roadmap_ids || []) as string[],
+    completedRoadmapSteps: (row.completed_roadmap_steps || []) as string[],
+    createdAt: String(row.created_at || new Date().toISOString()),
+  };
+}
+
+async function requireAuth(req: Request, res: Response, next: (error?: unknown) => void) {
+  const header = req.header('authorization');
+  const token = header?.startsWith('Bearer ') ? header.slice(7) : null;
+  if (!token) return res.status(401).json({ error: 'Authentication required' });
+
+  try {
+    const { data, error } = await getServerSupabase().auth.getUser(token);
+    if (error || !data.user) return res.status(401).json({ error: 'Invalid or expired session' });
+    (req as AuthenticatedRequest).user = { id: data.user.id, email: data.user.email };
+    next();
+  } catch (error) {
+    next(error);
+  }
+}
 
 const DEMO_STUDENT: StudentProfile = {
   id: 'demo-student-01',
@@ -265,60 +304,109 @@ app.post('/api/apex-ai', async (req: Request, res: Response) => {
   }
 });
 
-// Profile endpoints
-app.post('/api/auth/sign-in', (req: Request, res: Response) => {
-  const { email } = req.body;
-  if (!email) return res.status(400).json({ error: 'Email address is required' });
-  let profile = Array.from(studentProfiles.values()).find((p) => p.email.toLowerCase() === email.toLowerCase());
-  if (!profile) {
-    const newId = `student-${Date.now()}`;
-    profile = {
-      ...DEMO_STUDENT,
-      id: newId,
-      email,
-      displayName: email.split('@')[0],
-    };
-    studentProfiles.set(newId, profile);
+// Authenticated persistent profile endpoints
+app.get('/api/profile', requireAuth, async (req: Request, res: Response, next) => {
+  try {
+    const authenticated = req as AuthenticatedRequest;
+    const supabase = getServerSupabase();
+    const { data, error } = await supabase
+      .from('student_profiles')
+      .select('*')
+      .eq('user_id', authenticated.user.id)
+      .maybeSingle();
+    if (error) return next(error);
+    if (data) return res.json(toStudentProfile(data));
+
+    const { data: created, error: insertError } = await supabase
+      .from('student_profiles')
+      .insert({
+        user_id: authenticated.user.id,
+        email: authenticated.user.email || '',
+        display_name: authenticated.user.email?.split('@')[0] || 'Student',
+        units: DEMO_STUDENT.units,
+        interests: DEMO_STUDENT.interests,
+        skills_to_develop: DEMO_STUDENT.skillsToDevelop,
+        career_goals: DEMO_STUDENT.careerGoals,
+        consent: DEMO_STUDENT.consent,
+        saved_roadmap_ids: DEMO_STUDENT.savedRoadmapIds,
+        completed_roadmap_steps: DEMO_STUDENT.completedRoadmapSteps,
+      })
+      .select()
+      .single();
+    if (insertError) return next(insertError);
+    res.status(201).json(toStudentProfile(created));
+  } catch (error) {
+    next(error);
   }
-  res.json({ token: `session-${profile.id}`, profile });
 });
 
-app.post('/api/auth/sign-up', (req: Request, res: Response) => {
-  const { email, displayName, universityId, programmeId } = req.body;
-  const newId = `student-${Date.now()}`;
-  const profile: StudentProfile = {
-    ...DEMO_STUDENT,
-    id: newId,
-    email: email || 'student@example.ac.ke',
-    displayName: displayName || 'New Student',
-    universityId: universityId || 'maseno',
-    programmeId: programmeId || 'bsc-cs',
-  };
-  studentProfiles.set(newId, profile);
-  res.status(201).json({ token: `session-${profile.id}`, profile });
+app.put('/api/profile', requireAuth, async (req: Request, res: Response, next) => {
+  try {
+    const authenticated = req as AuthenticatedRequest;
+    const update = {
+      display_name: req.body.displayName,
+      university_id: req.body.universityId,
+      programme_id: req.body.programmeId,
+      current_year: req.body.currentYear,
+      current_semester: req.body.currentSemester,
+      grading_scale: req.body.gradingScale,
+      units: req.body.units,
+      interests: req.body.interests,
+      skills_to_develop: req.body.skillsToDevelop,
+      career_goals: req.body.careerGoals,
+      consent: req.body.consent,
+      saved_roadmap_ids: req.body.savedRoadmapIds,
+      completed_roadmap_steps: req.body.completedRoadmapSteps,
+    };
+    const { data, error } = await getServerSupabase()
+      .from('student_profiles')
+      .update(update)
+      .eq('user_id', authenticated.user.id)
+      .select()
+      .single();
+    if (error) return next(error);
+    res.json(toStudentProfile(data));
+  } catch (error) {
+    next(error);
+  }
 });
 
-app.get('/api/profile', (req: Request, res: Response) => {
-  const profile = studentProfiles.get('demo-student-01') || DEMO_STUDENT;
-  res.json(profile);
+app.post('/api/profile/consent', requireAuth, async (req: Request, res: Response, next) => {
+  try {
+    const authenticated = req as AuthenticatedRequest;
+    const supabase = getServerSupabase();
+    const { data: profile, error: readError } = await supabase
+      .from('student_profiles')
+      .select('consent')
+      .eq('user_id', authenticated.user.id)
+      .single();
+    if (readError) return next(readError);
+    const consent = { ...(profile.consent || {}), ...req.body, lastUpdated: new Date().toISOString() };
+    const { error } = await supabase.from('student_profiles').update({ consent }).eq('user_id', authenticated.user.id);
+    if (error) return next(error);
+    res.json({ message: 'Consent updated', consent });
+  } catch (error) {
+    next(error);
+  }
 });
 
-app.put('/api/profile', (req: Request, res: Response) => {
-  const updated = { ...DEMO_STUDENT, ...req.body };
-  studentProfiles.set('demo-student-01', updated);
-  res.json(updated);
-});
-
-app.post('/api/profile/consent', (req: Request, res: Response) => {
-  const profile = studentProfiles.get('demo-student-01') || DEMO_STUDENT;
-  profile.consent = { ...profile.consent, ...req.body, lastUpdated: new Date().toISOString() };
-  res.json({ message: 'Consent updated', consent: profile.consent });
-});
-
-app.delete('/api/profile/data', (req: Request, res: Response) => {
-  const profile = studentProfiles.get('demo-student-01') || DEMO_STUDENT;
-  profile.units = profile.units.map((u) => ({ ...u, mark: undefined }));
-  res.json({ message: 'Submitted marks wiped.' });
+app.delete('/api/profile/data', requireAuth, async (req: Request, res: Response, next) => {
+  try {
+    const authenticated = req as AuthenticatedRequest;
+    const supabase = getServerSupabase();
+    const { data: profile, error: readError } = await supabase
+      .from('student_profiles')
+      .select('units')
+      .eq('user_id', authenticated.user.id)
+      .single();
+    if (readError) return next(readError);
+    const units = (profile.units || []).map((unit: StudentProfile['units'][number]) => ({ ...unit, mark: undefined }));
+    const { error } = await supabase.from('student_profiles').update({ units }).eq('user_id', authenticated.user.id);
+    if (error) return next(error);
+    res.json({ message: 'Submitted marks wiped.' });
+  } catch (error) {
+    next(error);
+  }
 });
 
 // ==========================================
