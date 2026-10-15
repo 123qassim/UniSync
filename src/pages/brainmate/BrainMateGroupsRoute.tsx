@@ -179,9 +179,12 @@ export const BrainMateGroupsRoute: React.FC<BrainMateGroupsRouteProps> = ({
       if (res.ok) {
         await loadData();
         showToast(`Resource "${resourceData.title}" shared with group!`);
+      } else {
+        const err = await res.json();
+        showToast(err.error || 'Could not add resource', 'error');
       }
     } catch {
-      showToast('Resource added (local mode).');
+      showToast('Unable to reach the group service. Please try again.', 'error');
     }
   };
 
@@ -224,9 +227,12 @@ export const BrainMateGroupsRoute: React.FC<BrainMateGroupsRouteProps> = ({
       if (res.ok) {
         await loadData();
         showToast(`RSVP updated: ${rsvp}`);
+      } else {
+        const err = await res.json();
+        showToast(err.error || 'Could not update RSVP', 'error');
       }
     } catch {
-      await loadData();
+      showToast('Unable to reach the session service. Please try again.', 'error');
     }
   };
 
