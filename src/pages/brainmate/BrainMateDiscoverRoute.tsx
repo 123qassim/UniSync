@@ -35,6 +35,7 @@ import {
   INITIAL_STUDY_GROUPS,
   type StudyGroup,
 } from '../../data/brainmateMockData.ts';
+import { apiFetch } from '../../lib/apiClient.ts';
 
 export interface BrainMateDiscoverRouteProps {
   onNavigateBack?: () => void;
@@ -81,7 +82,7 @@ export const BrainMateDiscoverRoute: React.FC<BrainMateDiscoverRouteProps> = ({
       // 1. Fetch user profile
       let currentProfile = DEFAULT_STUDENT_LEARNING_PROFILE;
       try {
-        const profRes = await fetch('/api/brainmate/profile');
+        const profRes = await apiFetch('/api/brainmate/profile');
         if (profRes.ok) {
           const profData = await profRes.json();
           if (profData.profile) {

@@ -426,13 +426,110 @@ function calculateProfileCompleteness(profile: StudentLearningProfile): number {
   return Math.min(100, score);
 }
 
+async function loadPersistentBrainMateProfile(userId: string): Promise<StudentLearningProfile> {
+  const supabase = getServerSupabase();
+  const { data: studentProfile, error: studentProfileError } = await supabase
+    .from('student_profiles')
+    .select('display_name, university_id, programme_id')
+    .eq('user_id', userId)
+    .maybeSingle();
+
+  if (studentProfileError) throw studentProfileError;
+  if (!studentProfile) {
+    throw new Error('Complete your UniPath profile before using BrainMate');
+  }
+
+  const { data: institution, error: institutionError } = await supabase
+    .from('brainmate_institutions')
+    .select('id, slug, name')
+    .eq('slug', studentProfile.university_id)
+    .maybeSingle();
+
+  if (institutionError) throw institutionError;
+  if (!institution) {
+    throw new Error(`Unsupported BrainMate institution: ${studentProfile.university_id}`);
+  }
+
+  let { data: profile, error: profileError } = await supabase
+    .from('student_learning_profiles')
+    .select('*')
+    .eq('user_id', userId)
+    .maybeSingle();
+
+  if (profileError) throw profileError;
+
+  if (!profile) {
+    const { data: createdProfile, error: createError } = await supabase
+      .from('student_learning_profiles')
+      .insert({
+        user_id: userId,
+        institution_id: institution.id,
+        programme_id: studentProfile.programme_id,
+      })
+      .select('*')
+      .single();
+
+    if (createError) throw createError;
+    profile = createdProfile;
+  }
+
+  const [{ data: units, error: unitsError }, { data: availability, error: availabilityError }] =
+    await Promise.all([
+      supabase
+        .from('student_unit_preferences')
+        .select('academic_unit_id, role, confidence, topics')
+        .eq('profile_id', profile.id)
+        .order('created_at'),
+      supabase
+        .from('study_availability')
+        .select('day_of_week, start_time, end_time')
+        .eq('profile_id', profile.id)
+        .order('day_of_week')
+        .order('start_time'),
+    ]);
+
+  if (unitsError) throw unitsError;
+  if (availabilityError) throw availabilityError;
+
+  return {
+    id: profile.id,
+    userId,
+    displayName: studentProfile.display_name,
+    institutionId: institution.slug,
+    institutionName: institution.name,
+    programmeId: profile.programme_id,
+    programmeName: profile.programme_id,
+    studyLevel: profile.study_level,
+    preferredGroupSize: profile.preferred_group_size,
+    preferredFormat: profile.preferred_format,
+    mentorWillingness: profile.mentor_willingness,
+    collaborationGoals: profile.collaboration_goals || [],
+    visibility: profile.visibility,
+    units: (units || []).map((unit) => ({
+      academicUnitId: unit.academic_unit_id,
+      unitCode: unit.academic_unit_id,
+      unitTitle: unit.academic_unit_id,
+      role: unit.role,
+      confidence: unit.confidence || undefined,
+      topics: unit.topics || [],
+    })),
+    availability: (availability || []).map((window) => ({
+      dayOfWeek: window.day_of_week,
+      startTime: String(window.start_time).slice(0, 5),
+      endTime: String(window.end_time).slice(0, 5),
+    })),
+  };
+}
+
 // 1. Learning Profile
-app.get('/api/brainmate/profile', (req: Request, res: Response) => {
-  const completeness = calculateProfileCompleteness(brainmateStudentProfile);
-  res.json({
-    profile: brainmateStudentProfile,
-    completeness,
-  });
+app.get('/api/brainmate/profile', requireAuth, async (req: Request, res: Response, next) => {
+  try {
+    const userId = (req as AuthenticatedRequest).user.id;
+    const profile = await loadPersistentBrainMateProfile(userId);
+    res.json({ profile, completeness: calculateProfileCompleteness(profile) });
+  } catch (error) {
+    next(error);
+  }
 });
 
 const LearningProfileUpdateSchema = z.object({
@@ -467,26 +564,97 @@ const LearningProfileUpdateSchema = z.object({
     .optional(),
 });
 
-app.put('/api/brainmate/profile', (req: Request, res: Response) => {
+app.put('/api/brainmate/profile', requireAuth, async (req: Request, res: Response, next) => {
   const parsed = LearningProfileUpdateSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: 'Invalid profile data', details: parsed.error.issues });
   }
 
-  brainmateStudentProfile = {
-    ...brainmateStudentProfile,
-    ...parsed.data,
-    units: parsed.data.units || brainmateStudentProfile.units,
-    availability: parsed.data.availability || brainmateStudentProfile.availability,
-    collaborationGoals: parsed.data.collaborationGoals || brainmateStudentProfile.collaborationGoals,
-  };
+  try {
+    const userId = (req as AuthenticatedRequest).user.id;
+    const current = await loadPersistentBrainMateProfile(userId);
+    const supabase = getServerSupabase();
+    const { data: institution, error: institutionError } = await supabase
+      .from('brainmate_institutions')
+      .select('id')
+      .eq('slug', current.institutionId)
+      .single();
 
-  const completeness = calculateProfileCompleteness(brainmateStudentProfile);
-  res.json({
-    message: 'Learning profile successfully updated',
-    profile: brainmateStudentProfile,
-    completeness,
-  });
+    if (institutionError) throw institutionError;
+
+    const update = parsed.data;
+    const { data: updatedRow, error: updateError } = await supabase
+      .from('student_learning_profiles')
+      .update({
+        programme_id: update.programmeId || current.programmeId,
+        institution_id: institution.id,
+        study_level: update.studyLevel || current.studyLevel,
+        preferred_group_size: update.preferredGroupSize || current.preferredGroupSize,
+        preferred_format: update.preferredFormat || current.preferredFormat,
+        mentor_willingness: update.mentorWillingness ?? current.mentorWillingness,
+        collaboration_goals: update.collaborationGoals || current.collaborationGoals,
+        visibility: update.visibility || current.visibility,
+      })
+      .eq('user_id', userId)
+      .select('id')
+      .single();
+
+    if (updateError) throw updateError;
+
+    if (update.units) {
+      const { error: deleteUnitsError } = await supabase
+        .from('student_unit_preferences')
+        .delete()
+        .eq('profile_id', updatedRow.id);
+      if (deleteUnitsError) throw deleteUnitsError;
+
+      if (update.units.length > 0) {
+        const { error: insertUnitsError } = await supabase
+          .from('student_unit_preferences')
+          .insert(
+            update.units.map((unit) => ({
+              profile_id: updatedRow.id,
+              academic_unit_id: unit.academicUnitId,
+              role: unit.role,
+              confidence: unit.confidence || null,
+              topics: unit.topics,
+            }))
+          );
+        if (insertUnitsError) throw insertUnitsError;
+      }
+    }
+
+    if (update.availability) {
+      const { error: deleteAvailabilityError } = await supabase
+        .from('study_availability')
+        .delete()
+        .eq('profile_id', updatedRow.id);
+      if (deleteAvailabilityError) throw deleteAvailabilityError;
+
+      if (update.availability.length > 0) {
+        const { error: insertAvailabilityError } = await supabase
+          .from('study_availability')
+          .insert(
+            update.availability.map((window) => ({
+              profile_id: updatedRow.id,
+              day_of_week: window.dayOfWeek,
+              start_time: window.startTime,
+              end_time: window.endTime,
+            }))
+          );
+        if (insertAvailabilityError) throw insertAvailabilityError;
+      }
+    }
+
+    const profile = await loadPersistentBrainMateProfile(userId);
+    res.json({
+      message: 'Learning profile successfully updated',
+      profile,
+      completeness: calculateProfileCompleteness(profile),
+    });
+  } catch (error) {
+    next(error);
+  }
 });
 
 // 2. Deterministic & Explainable Match Discovery

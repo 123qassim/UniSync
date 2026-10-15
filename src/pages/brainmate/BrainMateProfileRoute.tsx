@@ -10,6 +10,7 @@ import React, { useState, useEffect } from 'react';
 import { LearningProfileEditor } from './LearningProfileEditor.tsx';
 import type { StudentLearningProfile } from '../../lib/brainmate/matching.ts';
 import { DEFAULT_STUDENT_LEARNING_PROFILE } from '../../data/brainmateMockData.ts';
+import { apiFetch } from '../../lib/apiClient.ts';
 import { ArrowLeft, Sparkles, Loader2, CheckCircle2 } from 'lucide-react';
 
 export interface BrainMateProfileRouteProps {
@@ -32,7 +33,7 @@ export const BrainMateProfileRoute: React.FC<BrainMateProfileRouteProps> = ({
 
   const fetchProfile = async () => {
     try {
-      const res = await fetch('/api/brainmate/profile');
+      const res = await apiFetch('/api/brainmate/profile');
       if (res.ok) {
         const data = await res.json();
         setProfile(data.profile);
@@ -47,7 +48,7 @@ export const BrainMateProfileRoute: React.FC<BrainMateProfileRouteProps> = ({
 
   const handleSaveProfile = async (updated: Partial<StudentLearningProfile>) => {
     try {
-      const res = await fetch('/api/brainmate/profile', {
+      const res = await apiFetch('/api/brainmate/profile', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(updated),

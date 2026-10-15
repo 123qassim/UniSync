@@ -128,7 +128,10 @@ Do not commit `.env` or `.env.local`. Only `.env.example` belongs in the reposit
 ### 5.2 Create and configure the Supabase project
 
 1. Create a Supabase project.
-2. In **SQL Editor**, run `supabase/full_schema.sql`, then the files in `supabase/migrations/` in timestamp order.
+2. In **SQL Editor**, use one schema path only:
+   - For a new database, run `supabase/full_schema.sql`, then run only migrations not already included in that combined file (currently `20261012_student_profiles.sql`).
+   - Alternatively, run the migration files in timestamp order and do not run `full_schema.sql`.
+   - Do not run both `full_schema.sql` and `20261010_brainmate_schema.sql`; they create the same BrainMate tables and policies.
 3. In **Project Settings > API**, copy the project URL and the publishable/anon key.
 4. Configure authentication redirect URLs for both:
    - `http://localhost:3000`

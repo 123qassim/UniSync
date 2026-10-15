@@ -44,6 +44,7 @@ import {
 } from '../../data/brainmateMockData.ts';
 
 import { BrainMateOverview } from './BrainMateOverview.tsx';
+import { apiFetch } from '../../lib/apiClient.ts';
 import { DiscoverFeed } from './DiscoverFeed.tsx';
 import { LearningProfileEditor } from './LearningProfileEditor.tsx';
 import { ConnectionsHub } from './ConnectionsHub.tsx';
@@ -180,7 +181,7 @@ export const BrainMatePortal: React.FC<BrainMatePortalProps> = ({
 
   const fetchProfile = async () => {
     try {
-      const res = await fetch('/api/brainmate/profile');
+      const res = await apiFetch('/api/brainmate/profile');
       if (res.ok) {
         const data = await res.json();
         setProfile(data.profile);
@@ -248,7 +249,7 @@ export const BrainMatePortal: React.FC<BrainMatePortalProps> = ({
   // Handler: Update Learning Profile
   const handleSaveProfile = async (updated: Partial<StudentLearningProfile>) => {
     try {
-      const res = await fetch('/api/brainmate/profile', {
+      const res = await apiFetch('/api/brainmate/profile', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(updated),
@@ -936,4 +937,3 @@ export const BrainMatePortal: React.FC<BrainMatePortalProps> = ({
     </div>
   );
 };
-
