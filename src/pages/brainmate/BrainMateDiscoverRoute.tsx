@@ -25,13 +25,11 @@ import {
 import { DiscoverFeed } from './DiscoverFeed.tsx';
 import { BlockModal, ReportModal } from './SafetyModals.tsx';
 import {
-  findBrainMateMatches,
   type MatchResult,
   type StudentLearningProfile,
 } from '../../lib/brainmate/matching.ts';
 import {
   DEFAULT_STUDENT_LEARNING_PROFILE,
-  SEED_CANDIDATE_PROFILES,
   INITIAL_STUDY_GROUPS,
   type StudyGroup,
 } from '../../data/brainmateMockData.ts';
@@ -124,11 +122,8 @@ export const BrainMateDiscoverRoute: React.FC<BrainMateDiscoverRouteProps> = ({
         // Fallback to client-side deterministic scoring
       }
 
-      // Deterministic client fallback calculation
-      const computedMatches = findBrainMateMatches(currentProfile, SEED_CANDIDATE_PROFILES, {
-        topN: 20,
-      });
-      setMatches(computedMatches);
+      setMatches([]);
+      showToast('Unable to load live peer matches. Please refresh and try again.', 'error');
     } finally {
       setIsLoading(false);
       setIsRefreshing(false);
@@ -152,19 +147,19 @@ export const BrainMateDiscoverRoute: React.FC<BrainMateDiscoverRouteProps> = ({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          receiverUserId: candidateUserId,
-          proposedUnitCodes: userProfile.units.map((u: { unitCode: string }) => u.unitCode).slice(0, 3),
-          introNote: note || 'Hi! I saw we share complementary course units and would love to study together.',
+          candidateUserId,
+          note: note || 'Hi! I saw we share complementary course units and would love to study together.',
         }),
       });
 
       if (res.ok) {
         showToast('Study connection request sent successfully!');
       } else {
-        showToast('Connection request sent! (rate-limit recorded)');
+        const error = await res.json().catch(() => null);
+        showToast(error?.error || 'Unable to send connection request.', 'error');
       }
     } catch {
-      showToast('Connection request recorded (offline mode)');
+      showToast('Unable to reach the connection service. Please try again.', 'error');
     }
   };
 
