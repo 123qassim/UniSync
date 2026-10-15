@@ -8,6 +8,10 @@
       "destination": "/api/brainmate-connections-request"
     },
     {
+      "source": "/api/brainmate/groups/:groupId/join",
+      "destination": "/api/brainmate-group-join?groupId=:groupId"
+    },
+    {
       "source": "/api/brainmate/groups",
       "destination": "/api/brainmate-groups"
     },

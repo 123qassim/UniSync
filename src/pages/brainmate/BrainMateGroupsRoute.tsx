@@ -145,7 +145,7 @@ export const BrainMateGroupsRoute: React.FC<BrainMateGroupsRouteProps> = ({
         showToast(err.error || 'Could not join group', 'error');
       }
     } catch {
-      await loadData();
+      showToast('Unable to reach the group service. Please try again.', 'error');
     }
   };
 
@@ -162,7 +162,7 @@ export const BrainMateGroupsRoute: React.FC<BrainMateGroupsRouteProps> = ({
         showToast(err.error || 'Could not leave group', 'error');
       }
     } catch {
-      await loadData();
+      showToast('Unable to reach the group service. Please try again.', 'error');
     }
   };
 

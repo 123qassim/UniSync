@@ -1123,6 +1123,38 @@ app.post('/api/brainmate/groups/:id/join', requireAuth, async (req: Request, res
   }
 });
 
+app.post('/api/brainmate-group-join', requireAuth, async (req: Request, res: Response, next) => {
+  try {
+    const userId = (req as AuthenticatedRequest).user.id;
+    const groupId = typeof req.query.groupId === 'string' ? req.query.groupId : '';
+    if (!groupId) return res.status(400).json({ error: 'Group ID is required' });
+    const supabase = getServerSupabase();
+    const { data: group, error: groupError } = await supabase
+      .from('study_groups')
+      .select('*')
+      .eq('id', groupId)
+      .maybeSingle();
+    if (groupError) throw groupError;
+    if (!group) return res.status(404).json({ error: 'Study group not found' });
+    const { count, error: countError } = await supabase
+      .from('study_group_memberships')
+      .select('id', { count: 'exact', head: true })
+      .eq('group_id', group.id)
+      .eq('status', 'active');
+    if (countError) throw countError;
+    if ((count || 0) >= group.max_members) {
+      return res.status(400).json({ error: 'This study group has reached maximum member capacity' });
+    }
+    const { error } = await supabase
+      .from('study_group_memberships')
+      .upsert({ group_id: group.id, user_id: userId, role: 'member', status: 'active' }, { onConflict: 'group_id,user_id' });
+    if (error) throw error;
+    res.json({ message: 'Successfully joined study group', group: await hydrateStudyGroup(group, userId) });
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.post('/api/brainmate/groups/:id/leave', requireAuth, async (req: Request, res: Response, next) => {
   try {
     const userId = (req as AuthenticatedRequest).user.id;
