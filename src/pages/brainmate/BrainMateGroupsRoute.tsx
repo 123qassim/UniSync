@@ -134,7 +134,7 @@ export const BrainMateGroupsRoute: React.FC<BrainMateGroupsRouteProps> = ({
 
   const handleJoinGroup = async (groupId: string) => {
     try {
-      const res = await apiFetch(`/api/brainmate/groups/${groupId}/join`, {
+      const res = await apiFetch(`/api/brainmate-group-join?groupId=${encodeURIComponent(groupId)}`, {
         method: 'POST',
       });
       if (res.ok) {
@@ -151,7 +151,7 @@ export const BrainMateGroupsRoute: React.FC<BrainMateGroupsRouteProps> = ({
 
   const handleLeaveGroup = async (groupId: string) => {
     try {
-      const res = await apiFetch(`/api/brainmate/groups/${groupId}/leave`, {
+      const res = await apiFetch(`/api/brainmate-group-leave?groupId=${encodeURIComponent(groupId)}`, {
         method: 'POST',
       });
       if (res.ok) {
@@ -219,7 +219,7 @@ export const BrainMateGroupsRoute: React.FC<BrainMateGroupsRouteProps> = ({
 
   const handleRsvp = async (sessionId: string, rsvp: 'going' | 'maybe' | 'declined') => {
     try {
-      const res = await apiFetch(`/api/brainmate/sessions/${sessionId}/rsvp`, {
+      const res = await apiFetch(`/api/brainmate-session-rsvp?sessionId=${encodeURIComponent(sessionId)}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ rsvp }),
