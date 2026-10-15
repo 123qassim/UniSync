@@ -521,6 +521,39 @@ async function loadPersistentBrainMateProfile(userId: string): Promise<StudentLe
   };
 }
 
+async function loadBrainMateConnectionUser(userId: string) {
+  const { data, error } = await getServerSupabase()
+    .from('student_profiles')
+    .select('user_id, display_name, programme_id')
+    .eq('user_id', userId)
+    .maybeSingle();
+  if (error) throw error;
+  return data;
+}
+
+async function toConnectionRequest(row: Record<string, any>): Promise<ConnectionRequest> {
+  const [sender, receiver] = await Promise.all([
+    loadBrainMateConnectionUser(row.sender_id),
+    loadBrainMateConnectionUser(row.receiver_id),
+  ]);
+  const reason = row.match_reason || {};
+  return {
+    id: row.id,
+    senderId: row.sender_id,
+    senderName: sender?.display_name || 'Student',
+    senderProgramme: sender?.programme_id || 'Academic programme',
+    senderStudyLevel: 'undergraduate',
+    receiverId: row.receiver_id,
+    receiverName: receiver?.display_name || 'Student',
+    note: row.note || '',
+    matchScore: Number(reason.score || 0),
+    matchReason: String(reason.explanation || 'Academic compatibility match'),
+    status: row.status,
+    createdAt: row.created_at,
+    respondedAt: row.responded_at || undefined,
+  };
+}
+
 // 1. Learning Profile
 app.get('/api/brainmate/profile', requireAuth, async (req: Request, res: Response, next) => {
   try {
@@ -658,185 +691,221 @@ app.put('/api/brainmate/profile', requireAuth, async (req: Request, res: Respons
 });
 
 // 2. Deterministic & Explainable Match Discovery
-app.get('/api/brainmate/matches', (req: Request, res: Response) => {
-  const topN = Number(req.query.topN) || 20;
-  const allowExisting = req.query.allowExisting === 'true';
+app.get('/api/brainmate/matches', requireAuth, async (req: Request, res: Response, next) => {
+  try {
+    const userId = (req as AuthenticatedRequest).user.id;
+    const topN = Math.min(50, Math.max(1, Number(req.query.topN) || 20));
+    const allowExisting = req.query.allowExisting === 'true';
+    const currentProfile = await loadPersistentBrainMateProfile(userId);
+    const supabase = getServerSupabase();
+    const { data: institution, error: institutionError } = await supabase
+      .from('brainmate_institutions')
+      .select('id')
+      .eq('slug', currentProfile.institutionId)
+      .single();
+    if (institutionError) throw institutionError;
+    const { data: profileRows, error: profileError } = await supabase
+      .from('student_learning_profiles')
+      .select('user_id')
+      .eq('institution_id', institution.id)
+      .neq('user_id', userId);
+    if (profileError) throw profileError;
 
-  const matches = findBrainMateMatches(brainmateStudentProfile, brainmateCandidates, {
-    topN,
-    blockedUserIds: Array.from(brainmateUserBlocks),
-    existingConnectionUserIds: brainmateActiveConnections.map((c) => c.userId),
-    allowExistingConnections: allowExisting,
-  });
-
-  res.json({
-    matches,
-    totalEligible: matches.length,
-    ethicalDisclaimer:
-      'Compatibility is a transparent, deterministic score based strictly on complementary academic units, syllabus topics, and schedule availability. Demographic, financial, and popularity metrics are never utilized.',
-  });
+    const candidates = await Promise.all(
+      (profileRows || []).map((row) => loadPersistentBrainMateProfile(row.user_id))
+    );
+    const { data: blocks, error: blocksError } = await supabase
+      .from('user_blocks')
+      .select('blocker_id, blocked_id')
+      .or(`blocker_id.eq.${userId},blocked_id.eq.${userId}`);
+    if (blocksError) throw blocksError;
+    const blockedUserIds = (blocks || []).map((block) =>
+      block.blocker_id === userId ? block.blocked_id : block.blocker_id
+    );
+    const { data: connections, error: connectionsError } = await supabase
+      .from('study_connections')
+      .select('user_a_id, user_b_id')
+      .or(`user_a_id.eq.${userId},user_b_id.eq.${userId}`);
+    if (connectionsError) throw connectionsError;
+    const existingConnectionUserIds = (connections || []).map((connection) =>
+      connection.user_a_id === userId ? connection.user_b_id : connection.user_a_id
+    );
+    const matches = findBrainMateMatches(currentProfile, candidates, {
+      topN,
+      blockedUserIds,
+      existingConnectionUserIds,
+      allowExistingConnections: allowExisting,
+    });
+    res.json({
+      matches,
+      totalEligible: matches.length,
+      ethicalDisclaimer:
+        'Compatibility is a transparent, deterministic score based strictly on complementary academic units, syllabus topics, and schedule availability. Demographic, financial, and popularity metrics are never utilized.',
+    });
+  } catch (error) {
+    next(error);
+  }
 });
 
 // 3. Connections Hub (Incoming, Outgoing, Active)
-app.get('/api/brainmate/connections', (req: Request, res: Response) => {
-  const incoming = brainmateRequests.filter(
-    (r) =>
-      r.receiverId === brainmateStudentProfile.userId &&
-      r.status === 'pending' &&
-      !brainmateUserBlocks.has(r.senderId)
-  );
-
-  const outgoing = brainmateRequests.filter(
-    (r) =>
-      r.senderId === brainmateStudentProfile.userId &&
-      r.status === 'pending' &&
-      !brainmateUserBlocks.has(r.receiverId)
-  );
-
-  const active = brainmateActiveConnections.filter((c) => !brainmateUserBlocks.has(c.userId));
-
-  res.json({
-    incoming,
-    outgoing,
-    active,
-    blockedCount: brainmateUserBlocks.size,
-  });
+app.get('/api/brainmate/connections', requireAuth, async (req: Request, res: Response, next) => {
+  try {
+    const userId = (req as AuthenticatedRequest).user.id;
+    const supabase = getServerSupabase();
+    const { data: requests, error: requestError } = await supabase
+      .from('study_connection_requests')
+      .select('*')
+      .or(`sender_id.eq.${userId},receiver_id.eq.${userId}`)
+      .order('created_at', { ascending: false });
+    if (requestError) throw requestError;
+    const visibleRequests = (requests || []).filter((request) => request.status === 'pending');
+    const hydratedRequests = await Promise.all(visibleRequests.map(toConnectionRequest));
+    const { data: connections, error: connectionError } = await supabase
+      .from('study_connections')
+      .select('id, user_a_id, user_b_id, created_at')
+      .or(`user_a_id.eq.${userId},user_b_id.eq.${userId}`);
+    if (connectionError) throw connectionError;
+    const active = await Promise.all(
+      (connections || []).map(async (connection) => {
+        const partnerId = connection.user_a_id === userId ? connection.user_b_id : connection.user_a_id;
+        const partner = await loadBrainMateConnectionUser(partnerId);
+        return {
+          id: connection.id,
+          userId: partnerId,
+          displayName: partner?.display_name || 'Student',
+          programmeName: partner?.programme_id || 'Academic programme',
+          studyLevel: 'Undergraduate',
+          avatarInitials: (partner?.display_name || 'Student')
+            .split(' ')
+            .map((name: string) => name[0])
+            .join('')
+            .slice(0, 2)
+            .toUpperCase(),
+          sharedUnitsCount: 0,
+          establishedAt: connection.created_at,
+          lastActive: 'Recently',
+        };
+      })
+    );
+    const { count: blockedCount, error: blockError } = await supabase
+      .from('user_blocks')
+      .select('id', { count: 'exact', head: true })
+      .eq('blocker_id', userId);
+    if (blockError) throw blockError;
+    res.json({
+      incoming: hydratedRequests.filter((request) => request.receiverId === userId),
+      outgoing: hydratedRequests.filter((request) => request.senderId === userId),
+      active,
+      blockedCount: blockedCount || 0,
+    });
+  } catch (error) {
+    next(error);
+  }
 });
 
 // 4. Send Connection Request (with strict safety rate limits)
-app.post('/api/brainmate/connections/request', (req: Request, res: Response) => {
+app.post('/api/brainmate/connections/request', requireAuth, async (req: Request, res: Response, next) => {
   const { candidateUserId, note } = req.body;
   if (!candidateUserId) {
     return res.status(400).json({ error: 'candidateUserId is required' });
   }
-
-  // Check blocks
-  if (brainmateUserBlocks.has(candidateUserId)) {
-    return res.status(403).json({ error: 'Cannot connect with a blocked user' });
+  try {
+    const senderId = (req as AuthenticatedRequest).user.id;
+    const supabase = getServerSupabase();
+    const [senderProfile, candidateProfile] = await Promise.all([
+      loadPersistentBrainMateProfile(senderId),
+      loadPersistentBrainMateProfile(candidateUserId),
+    ]);
+    const { data: block, error: blockError } = await supabase
+      .from('user_blocks')
+      .select('id')
+      .or(`and(blocker_id.eq.${senderId},blocked_id.eq.${candidateUserId}),and(blocker_id.eq.${candidateUserId},blocked_id.eq.${senderId})`)
+      .maybeSingle();
+    if (blockError) throw blockError;
+    if (block) return res.status(403).json({ error: 'Cannot connect with a blocked user' });
+    const { count: dailyCount, error: dailyError } = await supabase
+      .from('study_connection_requests')
+      .select('id', { count: 'exact', head: true })
+      .eq('sender_id', senderId)
+      .gte('created_at', new Date(Date.now() - 86400000).toISOString());
+    if (dailyError) throw dailyError;
+    if ((dailyCount || 0) >= 10) {
+      return res.status(429).json({ error: 'Rate limit reached: You can send at most 10 connection requests per day.' });
+    }
+    const { data: existing, error: existingError } = await supabase
+      .from('study_connection_requests')
+      .select('id, status')
+      .or(`and(sender_id.eq.${senderId},receiver_id.eq.${candidateUserId}),and(sender_id.eq.${candidateUserId},receiver_id.eq.${senderId})`)
+      .in('status', ['pending', 'accepted'])
+      .maybeSingle();
+    if (existingError) throw existingError;
+    if (existing?.status === 'accepted') return res.status(400).json({ error: 'You are already connected with this peer' });
+    if (existing?.status === 'pending') return res.status(400).json({ error: 'A pending connection request already exists' });
+    const matchResult = scoreCandidate(senderProfile, candidateProfile);
+    const { data: request, error: insertError } = await supabase
+      .from('study_connection_requests')
+      .insert({
+        sender_id: senderId,
+        receiver_id: candidateUserId,
+        note: typeof note === 'string' ? note.slice(0, 500) : null,
+        match_reason: { score: matchResult.score, explanation: matchResult.explanation },
+      })
+      .select('*')
+      .single();
+    if (insertError) throw insertError;
+    res.status(201).json({
+      message: 'Connection request sent successfully',
+      request: await toConnectionRequest(request),
+    });
+  } catch (error) {
+    next(error);
   }
-
-  // Rate limits: max 10/day total, max 3/user/week
-  const now = Date.now();
-  const oneDayAgo = now - 24 * 60 * 60 * 1000;
-  const oneWeekAgo = now - 7 * 24 * 60 * 60 * 1000;
-
-  const dailyCount = requestRateTracker.filter((r) => r.timestamp > oneDayAgo).length;
-  if (dailyCount >= 10) {
-    return res.status(429).json({ error: 'Rate limit reached: You can send at most 10 connection requests per day.' });
-  }
-
-  const userWeeklyCount = requestRateTracker.filter(
-    (r) => r.recipientId === candidateUserId && r.timestamp > oneWeekAgo
-  ).length;
-  if (userWeeklyCount >= 3) {
-    return res.status(429).json({ error: 'Rate limit reached: You can send at most 3 requests per week to the same peer.' });
-  }
-
-  // Check if candidate exists
-  const candidate = brainmateCandidates.find((c) => c.userId === candidateUserId);
-  if (!candidate) {
-    return res.status(404).json({ error: 'Candidate profile not found' });
-  }
-
-  // Check existing active or pending connection
-  if (brainmateActiveConnections.some((c) => c.userId === candidateUserId)) {
-    return res.status(400).json({ error: 'You are already connected with this peer' });
-  }
-
-  const existingPending = brainmateRequests.find(
-    (r) =>
-      r.senderId === brainmateStudentProfile.userId &&
-      r.receiverId === candidateUserId &&
-      r.status === 'pending'
-  );
-  if (existingPending) {
-    return res.status(400).json({ error: 'A pending connection request already exists' });
-  }
-
-  // Score candidate for snapshot
-  const matchResult = scoreCandidate(brainmateStudentProfile, candidate);
-
-  const newRequest: ConnectionRequest = {
-    id: `req-${Date.now()}`,
-    senderId: brainmateStudentProfile.userId,
-    senderName: brainmateStudentProfile.displayName,
-    senderProgramme: brainmateStudentProfile.programmeName || 'BSc Computer Science',
-    senderStudyLevel: `${brainmateStudentProfile.studyLevel}`,
-    receiverId: candidate.userId,
-    receiverName: candidate.displayName,
-    note: note || '',
-    matchScore: matchResult.score,
-    matchReason: matchResult.explanation,
-    status: 'pending',
-    createdAt: new Date().toISOString(),
-  };
-
-  brainmateRequests.unshift(newRequest);
-  requestRateTracker.push({ timestamp: now, recipientId: candidateUserId });
-
-  res.status(201).json({
-    message: 'Connection request sent successfully',
-    request: newRequest,
-  });
 });
 
 // 5. Respond to Connection Request (Accept, Decline, Withdraw)
-app.post('/api/brainmate/connections/respond', (req: Request, res: Response) => {
+app.post('/api/brainmate/connections/respond', requireAuth, async (req: Request, res: Response, next) => {
   const { requestId, action } = req.body;
-  const request = brainmateRequests.find((r) => r.id === requestId);
-
-  if (!request) {
-    return res.status(404).json({ error: 'Connection request not found' });
-  }
-
-  if (action === 'accept') {
-    request.status = 'accepted';
-    request.respondedAt = new Date().toISOString();
-
-    // Determine partner
-    const isReceiver = request.receiverId === brainmateStudentProfile.userId;
-    const partnerId = isReceiver ? request.senderId : request.receiverId;
-    const partnerName = isReceiver ? request.senderName : request.receiverName;
-    const partnerCandidate = brainmateCandidates.find((c) => c.userId === partnerId);
-
-    // Create Active Connection
-    if (!brainmateActiveConnections.some((c) => c.userId === partnerId)) {
-      brainmateActiveConnections.unshift({
-        id: `conn-${Date.now()}`,
-        userId: partnerId,
-        displayName: partnerName,
-        programmeName: partnerCandidate?.programmeName || request.senderProgramme || 'Academic Partner',
-        studyLevel: partnerCandidate?.studyLevel || 'Undergraduate',
-        avatarInitials: partnerName
-          .split(' ')
-          .map((n) => n[0])
-          .join('')
-          .slice(0, 2)
-          .toUpperCase(),
-        sharedUnitsCount: partnerCandidate
-          ? partnerCandidate.units.filter((u) =>
-              brainmateStudentProfile.units.some((my) => my.unitCode === u.unitCode)
-            ).length
-          : 2,
-        establishedAt: new Date().toISOString(),
-        lastActive: 'Just now',
-      });
-    }
-  } else if (action === 'decline') {
-    request.status = 'declined';
-    request.respondedAt = new Date().toISOString();
-  } else if (action === 'withdraw') {
-    request.status = 'withdrawn';
-    request.respondedAt = new Date().toISOString();
-  } else {
+  if (!requestId) return res.status(400).json({ error: 'requestId is required' });
+  if (!['accept', 'decline', 'withdraw'].includes(action)) {
     return res.status(400).json({ error: 'Invalid action. Must be accept, decline, or withdraw.' });
   }
-
-  res.json({
-    message: `Request status updated to ${request.status}`,
-    request,
-    activeConnections: brainmateActiveConnections,
-  });
+  try {
+    const userId = (req as AuthenticatedRequest).user.id;
+    const supabase = getServerSupabase();
+    const { data: request, error: requestError } = await supabase
+      .from('study_connection_requests')
+      .select('*')
+      .eq('id', requestId)
+      .maybeSingle();
+    if (requestError) throw requestError;
+    if (!request) return res.status(404).json({ error: 'Connection request not found' });
+    const canRespond =
+      (action === 'withdraw' && request.sender_id === userId) ||
+      (action !== 'withdraw' && request.receiver_id === userId);
+    if (!canRespond) return res.status(403).json({ error: 'You cannot change this request' });
+    const status = action === 'accept' ? 'accepted' : action === 'decline' ? 'declined' : 'withdrawn';
+    const { data: updated, error: updateError } = await supabase
+      .from('study_connection_requests')
+      .update({ status, responded_at: new Date().toISOString() })
+      .eq('id', requestId)
+      .eq(request.receiver_id === userId ? 'receiver_id' : 'sender_id', userId)
+      .select('*')
+      .single();
+    if (updateError) throw updateError;
+    if (status === 'accepted') {
+      const [userA, userB] = [request.sender_id, request.receiver_id].sort();
+      const { error: connectionError } = await supabase
+        .from('study_connections')
+        .upsert({ user_a_id: userA, user_b_id: userB }, { onConflict: 'user_a_id,user_b_id' });
+      if (connectionError) throw connectionError;
+    }
+    res.json({
+      message: `Request status updated to ${status}`,
+      request: await toConnectionRequest(updated),
+    });
+  } catch (error) {
+    next(error);
+  }
 });
 
 // 6. Study Groups (Browse, Create, Join, Manage)

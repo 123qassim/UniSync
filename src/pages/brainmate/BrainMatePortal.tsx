@@ -194,7 +194,7 @@ export const BrainMatePortal: React.FC<BrainMatePortalProps> = ({
 
   const fetchMatches = async () => {
     try {
-      const res = await fetch('/api/brainmate/matches');
+      const res = await apiFetch('/api/brainmate/matches');
       if (res.ok) {
         const data = await res.json();
         setMatches(data.matches);
@@ -206,7 +206,7 @@ export const BrainMatePortal: React.FC<BrainMatePortalProps> = ({
 
   const fetchConnections = async () => {
     try {
-      const res = await fetch('/api/brainmate/connections');
+      const res = await apiFetch('/api/brainmate/connections');
       if (res.ok) {
         const data = await res.json();
         setIncomingRequests(data.incoming);
@@ -273,7 +273,7 @@ export const BrainMatePortal: React.FC<BrainMatePortalProps> = ({
   // Handler: Send Connection Request
   const handleRequestConnect = async (candidateUserId: string, note: string) => {
     try {
-      const res = await fetch('/api/brainmate/connections/request', {
+      const res = await apiFetch('/api/brainmate/connections/request', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ candidateUserId, note }),
@@ -295,7 +295,7 @@ export const BrainMatePortal: React.FC<BrainMatePortalProps> = ({
   // Handler: Respond to Request
   const handleRespondRequest = async (requestId: string, action: 'accept' | 'decline' | 'withdraw') => {
     try {
-      const res = await fetch('/api/brainmate/connections/respond', {
+      const res = await apiFetch('/api/brainmate/connections/respond', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ requestId, action }),

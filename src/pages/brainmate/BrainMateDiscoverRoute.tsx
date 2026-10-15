@@ -96,7 +96,7 @@ export const BrainMateDiscoverRoute: React.FC<BrainMateDiscoverRouteProps> = ({
 
       // 2. Fetch study groups
       try {
-        const groupsRes = await fetch('/api/brainmate/groups');
+        const groupsRes = await apiFetch('/api/brainmate/groups');
         if (groupsRes.ok) {
           const groupsData = await groupsRes.json();
           if (Array.isArray(groupsData.groups)) {
@@ -109,7 +109,7 @@ export const BrainMateDiscoverRoute: React.FC<BrainMateDiscoverRouteProps> = ({
 
       // 3. Fetch matches
       try {
-        const matchRes = await fetch('/api/brainmate/matches?topN=20');
+        const matchRes = await apiFetch('/api/brainmate/matches?topN=20');
         if (matchRes.ok) {
           const matchData = await matchRes.json();
           if (Array.isArray(matchData.matches) && matchData.matches.length > 0) {
@@ -148,7 +148,7 @@ export const BrainMateDiscoverRoute: React.FC<BrainMateDiscoverRouteProps> = ({
   // Connection request handler
   const handleRequestConnect = async (candidateUserId: string, note: string) => {
     try {
-      const res = await fetch('/api/brainmate/connections/request', {
+      const res = await apiFetch('/api/brainmate/connections/request', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
