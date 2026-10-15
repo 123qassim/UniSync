@@ -218,7 +218,7 @@ export const BrainMatePortal: React.FC<BrainMatePortalProps> = ({
 
   const fetchGroups = async () => {
     try {
-      const res = await fetch('/api/brainmate/groups');
+      const res = await apiFetch('/api/brainmate/groups');
       if (res.ok) {
         const data = await res.json();
         setStudyGroups(data);
@@ -228,7 +228,7 @@ export const BrainMatePortal: React.FC<BrainMatePortalProps> = ({
 
   const fetchSessions = async () => {
     try {
-      const res = await fetch('/api/brainmate/sessions');
+      const res = await apiFetch('/api/brainmate/sessions');
       if (res.ok) {
         const data = await res.json();
         setStudySessions(data);
@@ -328,7 +328,7 @@ export const BrainMatePortal: React.FC<BrainMatePortalProps> = ({
     visibility: 'public' | 'invite_only';
   }) => {
     try {
-      const res = await fetch('/api/brainmate/groups', {
+      const res = await apiFetch('/api/brainmate/groups', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(groupData),
@@ -347,7 +347,7 @@ export const BrainMatePortal: React.FC<BrainMatePortalProps> = ({
   // Handler: Join Group
   const handleJoinGroup = async (groupId: string) => {
     try {
-      const res = await fetch(`/api/brainmate/groups/${groupId}/join`, {
+      const res = await apiFetch(`/api/brainmate/groups/${groupId}/join`, {
         method: 'POST',
       });
 
@@ -366,7 +366,7 @@ export const BrainMatePortal: React.FC<BrainMatePortalProps> = ({
   // Handler: Leave Group
   const handleLeaveGroup = async (groupId: string) => {
     try {
-      const res = await fetch(`/api/brainmate/groups/${groupId}/leave`, {
+      const res = await apiFetch(`/api/brainmate/groups/${groupId}/leave`, {
         method: "POST",
       });
       if (res.ok) {
@@ -415,7 +415,7 @@ export const BrainMatePortal: React.FC<BrainMatePortalProps> = ({
     agenda: string;
   }) => {
     try {
-      const res = await fetch('/api/brainmate/sessions', {
+      const res = await apiFetch('/api/brainmate/sessions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(sessionData),
@@ -434,7 +434,7 @@ export const BrainMatePortal: React.FC<BrainMatePortalProps> = ({
   // Handler: RSVP
   const handleRsvp = async (sessionId: string, rsvp: 'going' | 'maybe' | 'declined') => {
     try {
-      const res = await fetch(`/api/brainmate/sessions/${sessionId}/rsvp`, {
+      const res = await apiFetch(`/api/brainmate/sessions/${sessionId}/rsvp`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ rsvp }),

@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { StudyGroupsModule } from './StudyGroupsModule.tsx';
 import { BlockModal, ReportModal } from './SafetyModals.tsx';
+import { apiFetch } from '../../lib/apiClient.ts';
 import {
   INITIAL_STUDY_GROUPS,
   INITIAL_STUDY_SESSIONS,
@@ -60,7 +61,7 @@ export const BrainMateGroupsRoute: React.FC<BrainMateGroupsRouteProps> = ({
     try {
       // 1. Fetch study groups
       try {
-        const groupsRes = await fetch('/api/brainmate/groups');
+        const groupsRes = await apiFetch('/api/brainmate/groups');
         if (groupsRes.ok) {
           const data = await groupsRes.json();
           if (Array.isArray(data)) {
@@ -75,7 +76,7 @@ export const BrainMateGroupsRoute: React.FC<BrainMateGroupsRouteProps> = ({
 
       // 2. Fetch sessions
       try {
-        const sessRes = await fetch('/api/brainmate/sessions');
+        const sessRes = await apiFetch('/api/brainmate/sessions');
         if (sessRes.ok) {
           const sessData = await sessRes.json();
           if (Array.isArray(sessData)) {
@@ -113,7 +114,7 @@ export const BrainMateGroupsRoute: React.FC<BrainMateGroupsRouteProps> = ({
     visibility: 'public' | 'invite_only';
   }) => {
     try {
-      const res = await fetch('/api/brainmate/groups', {
+      const res = await apiFetch('/api/brainmate/groups', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(groupData),
@@ -133,7 +134,7 @@ export const BrainMateGroupsRoute: React.FC<BrainMateGroupsRouteProps> = ({
 
   const handleJoinGroup = async (groupId: string) => {
     try {
-      const res = await fetch(`/api/brainmate/groups/${groupId}/join`, {
+      const res = await apiFetch(`/api/brainmate/groups/${groupId}/join`, {
         method: 'POST',
       });
       if (res.ok) {
@@ -150,7 +151,7 @@ export const BrainMateGroupsRoute: React.FC<BrainMateGroupsRouteProps> = ({
 
   const handleLeaveGroup = async (groupId: string) => {
     try {
-      const res = await fetch(`/api/brainmate/groups/${groupId}/leave`, {
+      const res = await apiFetch(`/api/brainmate/groups/${groupId}/leave`, {
         method: 'POST',
       });
       if (res.ok) {
@@ -170,7 +171,7 @@ export const BrainMateGroupsRoute: React.FC<BrainMateGroupsRouteProps> = ({
     resourceData: { title: string; type: string; size?: string }
   ) => {
     try {
-      const res = await fetch(`/api/brainmate/groups/${groupId}/resources`, {
+      const res = await apiFetch(`/api/brainmate/groups/${groupId}/resources`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(resourceData),
@@ -198,7 +199,7 @@ export const BrainMateGroupsRoute: React.FC<BrainMateGroupsRouteProps> = ({
     agenda: string;
   }) => {
     try {
-      const res = await fetch('/api/brainmate/sessions', {
+      const res = await apiFetch('/api/brainmate/sessions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(sessionData),
@@ -215,7 +216,7 @@ export const BrainMateGroupsRoute: React.FC<BrainMateGroupsRouteProps> = ({
 
   const handleRsvp = async (sessionId: string, rsvp: 'going' | 'maybe' | 'declined') => {
     try {
-      const res = await fetch(`/api/brainmate/sessions/${sessionId}/rsvp`, {
+      const res = await apiFetch(`/api/brainmate/sessions/${sessionId}/rsvp`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ rsvp }),

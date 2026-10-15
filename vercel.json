@@ -8,6 +8,14 @@
       "destination": "/api/brainmate-connections-request"
     },
     {
+      "source": "/api/brainmate/groups",
+      "destination": "/api/brainmate-groups"
+    },
+    {
+      "source": "/api/brainmate/sessions",
+      "destination": "/api/brainmate-sessions"
+    },
+    {
       "source": "/((?!api(?:/|$)).*)",
       "destination": "/index.html"
     }

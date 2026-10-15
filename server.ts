@@ -908,7 +908,314 @@ app.post('/api/brainmate/connections/respond', requireAuth, async (req: Request,
   }
 });
 
-// 6. Study Groups (Browse, Create, Join, Manage)
+async function hydrateStudyGroup(row: Record<string, any>, userId: string) {
+  const supabase = getServerSupabase();
+  const { data: owner, error: ownerError } = await supabase
+    .from('student_profiles')
+    .select('display_name, programme_id')
+    .eq('user_id', row.owner_id)
+    .maybeSingle();
+  if (ownerError) throw ownerError;
+  const { data: memberships, error: membershipError } = await supabase
+    .from('study_group_memberships')
+    .select('user_id, role, joined_at')
+    .eq('group_id', row.id)
+    .eq('status', 'active');
+  if (membershipError) throw membershipError;
+  const members = await Promise.all(
+    (memberships || []).map(async (membership) => {
+      const { data: member, error: memberError } = await supabase
+        .from('student_profiles')
+        .select('display_name')
+        .eq('user_id', membership.user_id)
+        .maybeSingle();
+      if (memberError) throw memberError;
+      const displayName = member?.display_name || 'Student';
+      return {
+        userId: membership.user_id,
+        displayName,
+        role: membership.role,
+        joinedAt: membership.joined_at,
+        avatarInitials: displayName
+          .split(' ')
+          .map((name: string) => name[0])
+          .join('')
+          .slice(0, 2)
+          .toUpperCase(),
+      };
+    })
+  );
+  return {
+    id: row.id,
+    name: row.name,
+    purpose: row.purpose,
+    institutionId: row.institution_id,
+    institutionName: 'Institution',
+    ownerId: row.owner_id,
+    ownerName: owner?.display_name || 'Student',
+    academicUnitId: row.academic_unit_id,
+    academicUnitCode: row.academic_unit_id,
+    academicUnitTitle: row.academic_unit_id,
+    format: row.format,
+    maxMembers: row.max_members,
+    currentMemberCount: members.length,
+    visibility: row.visibility,
+    members,
+    resources: [],
+    createdAt: row.created_at,
+    isMember: members.some((member) => member.userId === userId),
+    isOwner: row.owner_id === userId,
+  };
+}
+
+async function hydrateStudySession(row: Record<string, any>, userId: string) {
+  const supabase = getServerSupabase();
+  const { data: participants, error: participantError } = await supabase
+    .from('study_session_participants')
+    .select('user_id, rsvp')
+    .eq('session_id', row.id);
+  if (participantError) throw participantError;
+  const hydratedParticipants = await Promise.all(
+    (participants || []).map(async (participant) => {
+      const { data: student, error: studentError } = await supabase
+        .from('student_profiles')
+        .select('display_name')
+        .eq('user_id', participant.user_id)
+        .maybeSingle();
+      if (studentError) throw studentError;
+      return {
+        userId: participant.user_id,
+        displayName: student?.display_name || 'Student',
+        rsvp: participant.rsvp,
+      };
+    })
+  );
+  return {
+    id: row.id,
+    groupId: row.group_id || undefined,
+    title: row.title,
+    academicUnitId: row.academic_unit_id,
+    academicUnitCode: row.academic_unit_id,
+    academicUnitTitle: row.academic_unit_id,
+    scheduledStart: row.scheduled_start,
+    scheduledEnd: row.scheduled_end,
+    format: 'hybrid',
+    location: row.location || '',
+    onlineUrl: row.online_url || '',
+    agenda: row.agenda,
+    status: row.status,
+    createdBy: row.created_by,
+    createdByName: 'Student',
+    participants: hydratedParticipants,
+    createdAt: row.created_at,
+    myRsvp: hydratedParticipants.find((participant) => participant.userId === userId)?.rsvp || 'none',
+  };
+}
+
+// Persistent Study Groups
+app.get('/api/brainmate/groups', requireAuth, async (req: Request, res: Response, next) => {
+  try {
+    const userId = (req as AuthenticatedRequest).user.id;
+    const profile = await loadPersistentBrainMateProfile(userId);
+    const supabase = getServerSupabase();
+    const { data: institution, error: institutionError } = await supabase
+      .from('brainmate_institutions')
+      .select('id')
+      .eq('slug', profile.institutionId)
+      .single();
+    if (institutionError) throw institutionError;
+    let query = supabase
+      .from('study_groups')
+      .select('*')
+      .eq('institution_id', institution.id)
+      .order('created_at', { ascending: false });
+    if (req.query.format && req.query.format !== 'all') query = query.eq('format', String(req.query.format));
+    if (req.query.unit) query = query.ilike('academic_unit_id', `%${String(req.query.unit)}%`);
+    if (req.query.search) {
+      const search = String(req.query.search).replace(/[%_,]/g, '');
+      query = query.or(`name.ilike.%${search}%,purpose.ilike.%${search}%`);
+    }
+    const { data: rows, error } = await query;
+    if (error) throw error;
+    res.json(await Promise.all((rows || []).map((row) => hydrateStudyGroup(row, userId))));
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/brainmate/groups', requireAuth, async (req: Request, res: Response, next) => {
+  try {
+    const userId = (req as AuthenticatedRequest).user.id;
+    const { name, purpose, academicUnitCode, format, maxMembers, visibility } = req.body;
+    if (!name || !purpose || !academicUnitCode) {
+      return res.status(400).json({ error: 'Name, purpose, and academic unit code are required' });
+    }
+    const profile = await loadPersistentBrainMateProfile(userId);
+    const supabase = getServerSupabase();
+    const { data: institution, error: institutionError } = await supabase
+      .from('brainmate_institutions')
+      .select('id')
+      .eq('slug', profile.institutionId)
+      .single();
+    if (institutionError) throw institutionError;
+    const { data: group, error: groupError } = await supabase
+      .from('study_groups')
+      .insert({
+        name: String(name).slice(0, 120),
+        purpose: String(purpose).slice(0, 500),
+        institution_id: institution.id,
+        owner_id: userId,
+        academic_unit_id: String(academicUnitCode).slice(0, 80),
+        format: format || 'hybrid',
+        max_members: Math.min(20, Math.max(2, Number(maxMembers) || 5)),
+        visibility: visibility || 'public',
+      })
+      .select('*')
+      .single();
+    if (groupError) throw groupError;
+    const { error: membershipError } = await supabase
+      .from('study_group_memberships')
+      .insert({ group_id: group.id, user_id: userId, role: 'owner', status: 'active' });
+    if (membershipError) throw membershipError;
+    res.status(201).json({ message: 'Study group created successfully', group: await hydrateStudyGroup(group, userId) });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get('/api/brainmate/groups/:id', requireAuth, async (req: Request, res: Response, next) => {
+  try {
+    const userId = (req as AuthenticatedRequest).user.id;
+    const { data: group, error } = await getServerSupabase()
+      .from('study_groups')
+      .select('*')
+      .eq('id', req.params.id)
+      .maybeSingle();
+    if (error) throw error;
+    if (!group) return res.status(404).json({ error: 'Study group not found' });
+    res.json(await hydrateStudyGroup(group, userId));
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/brainmate/groups/:id/join', requireAuth, async (req: Request, res: Response, next) => {
+  try {
+    const userId = (req as AuthenticatedRequest).user.id;
+    const supabase = getServerSupabase();
+    const { data: group, error: groupError } = await supabase.from('study_groups').select('*').eq('id', req.params.id).maybeSingle();
+    if (groupError) throw groupError;
+    if (!group) return res.status(404).json({ error: 'Study group not found' });
+    const { count, error: countError } = await supabase
+      .from('study_group_memberships')
+      .select('id', { count: 'exact', head: true })
+      .eq('group_id', group.id)
+      .eq('status', 'active');
+    if (countError) throw countError;
+    if ((count || 0) >= group.max_members) return res.status(400).json({ error: 'This study group has reached maximum member capacity' });
+    const { error } = await supabase
+      .from('study_group_memberships')
+      .upsert({ group_id: group.id, user_id: userId, role: 'member', status: 'active' }, { onConflict: 'group_id,user_id' });
+    if (error) throw error;
+    res.json({ message: 'Successfully joined study group', group: await hydrateStudyGroup(group, userId) });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/brainmate/groups/:id/leave', requireAuth, async (req: Request, res: Response, next) => {
+  try {
+    const userId = (req as AuthenticatedRequest).user.id;
+    const { data: membership, error: membershipError } = await getServerSupabase()
+      .from('study_group_memberships')
+      .select('role')
+      .eq('group_id', req.params.id)
+      .eq('user_id', userId)
+      .eq('status', 'active')
+      .maybeSingle();
+    if (membershipError) throw membershipError;
+    if (!membership) return res.status(400).json({ error: 'You are not a member of this study group' });
+    const { error } = await getServerSupabase()
+      .from('study_group_memberships')
+      .update({ status: 'left' })
+      .eq('group_id', req.params.id)
+      .eq('user_id', userId);
+    if (error) throw error;
+    res.json({ message: 'Left study group successfully' });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Persistent Study Sessions
+app.get('/api/brainmate/sessions', requireAuth, async (req: Request, res: Response, next) => {
+  try {
+    const userId = (req as AuthenticatedRequest).user.id;
+    const { data: rows, error } = await getServerSupabase()
+      .from('study_sessions')
+      .select('*')
+      .order('scheduled_start');
+    if (error) throw error;
+    res.json(await Promise.all((rows || []).map((row) => hydrateStudySession(row, userId))));
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/brainmate/sessions', requireAuth, async (req: Request, res: Response, next) => {
+  try {
+    const userId = (req as AuthenticatedRequest).user.id;
+    const { title, groupId, academicUnitCode, scheduledStart, scheduledEnd, location, onlineUrl, agenda } = req.body;
+    if (!title || !academicUnitCode || !scheduledStart || !scheduledEnd) {
+      return res.status(400).json({ error: 'Title, unit code, start time, and end time are required' });
+    }
+    const supabase = getServerSupabase();
+    const { data: session, error: sessionError } = await supabase
+      .from('study_sessions')
+      .insert({
+        group_id: groupId || null,
+        title: String(title).slice(0, 160),
+        academic_unit_id: String(academicUnitCode).slice(0, 80),
+        scheduled_start: scheduledStart,
+        scheduled_end: scheduledEnd,
+        location: location || null,
+        online_url: onlineUrl || null,
+        agenda: agenda || 'Collaborative study and problem review',
+        created_by: userId,
+      })
+      .select('*')
+      .single();
+    if (sessionError) throw sessionError;
+    const { error: participantError } = await supabase
+      .from('study_session_participants')
+      .insert({ session_id: session.id, user_id: userId, rsvp: 'going' });
+    if (participantError) throw participantError;
+    res.status(201).json({ message: 'Study session scheduled', session: await hydrateStudySession(session, userId) });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/brainmate/sessions/:id/rsvp', requireAuth, async (req: Request, res: Response, next) => {
+  try {
+    const userId = (req as AuthenticatedRequest).user.id;
+    const rsvp = req.body.rsvp;
+    if (!['going', 'maybe', 'declined'].includes(rsvp)) return res.status(400).json({ error: 'Invalid RSVP value' });
+    const supabase = getServerSupabase();
+    const { data: session, error: sessionError } = await supabase.from('study_sessions').select('*').eq('id', req.params.id).maybeSingle();
+    if (sessionError) throw sessionError;
+    if (!session) return res.status(404).json({ error: 'Study session not found' });
+    const { error } = await supabase
+      .from('study_session_participants')
+      .upsert({ session_id: session.id, user_id: userId, rsvp }, { onConflict: 'session_id,user_id' });
+    if (error) throw error;
+    res.json({ message: `RSVP updated to ${rsvp}`, session: await hydrateStudySession(session, userId) });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// 6. Study Groups (legacy demo handlers retained below)
 app.get('/api/brainmate/groups', (req: Request, res: Response) => {
   const { unit, format, search } = req.query;
 
