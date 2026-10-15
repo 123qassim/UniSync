@@ -1,6 +1,9 @@
 import { supabase } from './supabaseClient.ts';
 
-export async function requestSignInCode(email: string, redirectTo = window.location.origin) {
+const getAuthRedirectOrigin = () =>
+  import.meta.env.VITE_PUBLIC_APP_URL?.replace(/\/+$/, '') || window.location.origin;
+
+export async function requestSignInCode(email: string, redirectTo = getAuthRedirectOrigin()) {
   const { error } = await supabase.auth.signInWithOtp({
     email,
     options: { emailRedirectTo: `${redirectTo}/auth/callback` },
@@ -12,7 +15,7 @@ export async function requestSignInCode(email: string, redirectTo = window.locat
 export async function requestSignUpCode(
   email: string,
   metadata: { displayName: string; universityId: string; programmeId: string },
-  redirectTo = window.location.origin,
+  redirectTo = getAuthRedirectOrigin(),
 ) {
   const { error } = await supabase.auth.signInWithOtp({
     email,
