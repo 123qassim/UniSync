@@ -284,7 +284,7 @@ export const BrainMateGroupsRoute: React.FC<BrainMateGroupsRouteProps> = ({
   }
 
   const myJoinedCount = groups.filter(
-    (g) => (g as any).isMember || g.members.some((m) => m.userId === 'demo-student-01')
+    (g) => Boolean((g as any).isMember)
   ).length;
 
   return (

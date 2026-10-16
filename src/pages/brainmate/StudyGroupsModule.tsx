@@ -1309,7 +1309,8 @@ export const StudyGroupsModule: React.FC<StudyGroupsModuleProps> = ({
             {/* Bottom Footer Actions */}
             <div className="border-t border-slate-800 pt-4 flex flex-wrap items-center justify-between gap-3">
               <div className="flex items-center gap-2">
-                {activeGroupDetail.members.some((m) => m.userId === currentUserId) ? (
+                {(activeGroupDetail as StudyGroup & { isMember?: boolean }).isMember ||
+                activeGroupDetail.members.some((m) => m.userId === currentUserId) ? (
                   <button
                     type="button"
                     disabled={leavingGroupId === activeGroupDetail.id}
