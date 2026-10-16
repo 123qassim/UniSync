@@ -4,30 +4,6 @@
   "outputDirectory": "dist",
   "rewrites": [
     {
-      "source": "/api/brainmate/connections/request",
-      "destination": "/api/brainmate-connections-request"
-    },
-    {
-      "source": "/api/brainmate/groups/:groupId/join",
-      "destination": "/api/brainmate-group-join?groupId=:groupId"
-    },
-    {
-      "source": "/api/brainmate/groups/:groupId/leave",
-      "destination": "/api/brainmate-group-leave?groupId=:groupId"
-    },
-    {
-      "source": "/api/brainmate/sessions/:sessionId/rsvp",
-      "destination": "/api/brainmate-session-rsvp?sessionId=:sessionId"
-    },
-    {
-      "source": "/api/brainmate/groups",
-      "destination": "/api/brainmate-groups"
-    },
-    {
-      "source": "/api/brainmate/sessions",
-      "destination": "/api/brainmate-sessions"
-    },
-    {
       "source": "/((?!api(?:/|$)).*)",
       "destination": "/index.html"
     }
