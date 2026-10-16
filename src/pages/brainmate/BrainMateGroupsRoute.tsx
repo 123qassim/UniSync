@@ -168,7 +168,7 @@ export const BrainMateGroupsRoute: React.FC<BrainMateGroupsRouteProps> = ({
 
   const handleAddResource = async (
     groupId: string,
-    resourceData: { title: string; type: string; size?: string }
+    resourceData: { title: string; type: string; size?: string; fileName?: string; fileData?: string; mimeType?: string }
   ) => {
     try {
       const res = await apiFetch(`/api/brainmate/groups/${groupId}/resources`, {

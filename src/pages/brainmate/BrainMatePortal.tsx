@@ -383,9 +383,9 @@ export const BrainMatePortal: React.FC<BrainMatePortalProps> = ({
   };
 
   // Handler: Add Resource
-  const handleAddResource = async (groupId: string, resourceData: { title: string; type: string; size?: string }) => {
+  const handleAddResource = async (groupId: string, resourceData: { title: string; type: string; size?: string; fileName?: string; fileData?: string; mimeType?: string }) => {
     try {
-      const res = await fetch(`/api/brainmate/groups/${groupId}/resources`, {
+      const res = await apiFetch(`/api/brainmate/groups/${groupId}/resources`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(resourceData),
@@ -393,10 +393,12 @@ export const BrainMatePortal: React.FC<BrainMatePortalProps> = ({
       if (res.ok) {
         fetchGroups();
         showToast(`Resource "${resourceData.title}" shared with circle!`);
+      } else {
+        const err = await res.json();
+        showToast(err.error || 'Could not share resource', 'error');
       }
     } catch {
-      fetchGroups();
-      showToast("Resource added (local mode).");
+      showToast("Unable to reach the group service. Please try again.", 'error');
     }
   };
 

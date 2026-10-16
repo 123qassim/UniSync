@@ -922,6 +922,37 @@ async function hydrateStudyGroup(row: Record<string, any>, userId: string) {
     .eq('group_id', row.id)
     .eq('status', 'active');
   if (membershipError) throw membershipError;
+  const { data: resourceRows, error: resourceError } = await supabase
+    .from('study_group_resources')
+    .select('id, title, resource_type, size_label, storage_path, uploaded_by, created_at')
+    .eq('group_id', row.id)
+    .order('created_at', { ascending: false });
+  if (resourceError && resourceError.code !== '42P01') throw resourceError;
+  const resources = await Promise.all(
+    (resourceRows || []).map(async (resource) => {
+      let url: string | undefined;
+      if (resource.storage_path) {
+        const { data: signed } = await supabase.storage
+          .from('brainmate-resources')
+          .createSignedUrl(resource.storage_path, 3600);
+        url = signed?.signedUrl;
+      }
+      const { data: uploader } = await supabase
+        .from('student_profiles')
+        .select('display_name')
+        .eq('user_id', resource.uploaded_by)
+        .maybeSingle();
+      return {
+        id: resource.id,
+        title: resource.title,
+        type: resource.resource_type,
+        uploadedBy: uploader?.display_name || 'Student',
+        size: resource.size_label || '',
+        url,
+        createdAt: resource.created_at,
+      };
+    })
+  );
   const members = await Promise.all(
     (memberships || []).map(async (membership) => {
       const { data: member, error: memberError } = await supabase
@@ -961,7 +992,7 @@ async function hydrateStudyGroup(row: Record<string, any>, userId: string) {
     currentMemberCount: members.length,
     visibility: row.visibility,
     members,
-    resources: [],
+    resources,
     createdAt: row.created_at,
     isMember: members.some((member) => member.userId === userId),
     isOwner: row.owner_id === userId,
@@ -1174,6 +1205,57 @@ app.post('/api/brainmate/groups/:id/leave', requireAuth, async (req: Request, re
       .eq('user_id', userId);
     if (error) throw error;
     res.json({ message: 'Left study group successfully' });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/brainmate/groups/:id/resources', requireAuth, async (req: Request, res: Response, next) => {
+  try {
+    const userId = (req as AuthenticatedRequest).user.id;
+    const { title, type, size, fileName, fileData, mimeType } = req.body || {};
+    if (!title || typeof title !== 'string') return res.status(400).json({ error: 'Resource title is required' });
+    const supabase = getServerSupabase();
+    const { data: membership, error: membershipError } = await supabase
+      .from('study_group_memberships')
+      .select('id')
+      .eq('group_id', req.params.id)
+      .eq('user_id', userId)
+      .eq('status', 'active')
+      .maybeSingle();
+    if (membershipError) throw membershipError;
+    if (!membership) return res.status(403).json({ error: 'Only active group members can share resources' });
+
+    let storagePath: string | null = null;
+    if (fileData) {
+      if (typeof fileData !== 'string' || fileData.length > 14_000_000) {
+        return res.status(400).json({ error: 'File is too large. Maximum size is 10 MB.' });
+      }
+      const safeName = String(fileName || 'resource').replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 120);
+      storagePath = `${req.params.id}/${crypto.randomUUID()}-${safeName}`;
+      const buffer = Buffer.from(fileData, 'base64');
+      const { error: uploadError } = await supabase.storage
+        .from('brainmate-resources')
+        .upload(storagePath, buffer, { contentType: mimeType || 'application/octet-stream', upsert: false });
+      if (uploadError) throw uploadError;
+    }
+    const { data: resource, error } = await supabase
+      .from('study_group_resources')
+      .insert({
+        group_id: req.params.id,
+        uploaded_by: userId,
+        title: title.trim().slice(0, 160),
+        resource_type: String(type || 'document').slice(0, 40),
+        size_label: size ? String(size).slice(0, 40) : null,
+        storage_path: storagePath,
+      })
+      .select('id, title, resource_type, size_label, storage_path, uploaded_by, created_at')
+      .single();
+    if (error) {
+      if (storagePath) await supabase.storage.from('brainmate-resources').remove([storagePath]);
+      throw error;
+    }
+    res.status(201).json({ message: 'Resource shared with group', resource });
   } catch (error) {
     next(error);
   }

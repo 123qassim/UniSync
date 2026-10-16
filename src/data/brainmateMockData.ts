@@ -39,6 +39,7 @@ export interface StudyGroup {
     type: string;
     uploadedBy: string;
     size: string;
+    url?: string;
   }[];
   createdAt: string;
 }
@@ -1172,4 +1173,3 @@ export const INITIAL_PEER_SCHEDULE_DATA: Record<string, PeerScheduleComparison> 
     ],
   },
 };
-

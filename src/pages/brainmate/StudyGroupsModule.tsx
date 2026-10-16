@@ -57,7 +57,10 @@ export interface StudyGroupsModuleProps {
   }) => Promise<void>;
   onJoinGroup: (groupId: string) => Promise<void>;
   onLeaveGroup?: (groupId: string) => Promise<void>;
-  onAddResource?: (groupId: string, data: { title: string; type: string; size?: string }) => Promise<void>;
+  onAddResource?: (
+    groupId: string,
+    data: { title: string; type: string; size?: string; fileName?: string; fileData?: string; mimeType?: string }
+  ) => Promise<void>;
   onScheduleSessionForGroup?: (group: StudyGroup) => void;
   onCreateSession?: (data: {
     title: string;
@@ -133,6 +136,7 @@ export const StudyGroupsModule: React.FC<StudyGroupsModuleProps> = ({
   const [resourceTitle, setResourceTitle] = useState('');
   const [resourceType, setResourceType] = useState('Study Notes');
   const [resourceSize, setResourceSize] = useState('1.2 MB');
+  const [resourceFile, setResourceFile] = useState<File | null>(null);
   const [isSubmittingResource, setIsSubmittingResource] = useState(false);
 
   // Create Group Form State
@@ -343,11 +347,27 @@ export const StudyGroupsModule: React.FC<StudyGroupsModuleProps> = ({
 
     setIsSubmittingResource(true);
     try {
+      let fileData: string | undefined;
+      if (resourceFile) {
+        if (resourceFile.size > 10 * 1024 * 1024) {
+          triggerToast('Files must be 10 MB or smaller.');
+          return;
+        }
+        fileData = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(String(reader.result).split(',')[1] || '');
+          reader.onerror = () => reject(new Error('Unable to read file'));
+          reader.readAsDataURL(resourceFile);
+        });
+      }
       if (onAddResource) {
         await onAddResource(activeGroupDetail.id, {
           title: resourceTitle.trim(),
           type: resourceType,
-          size: resourceSize,
+          size: resourceFile ? `${(resourceFile.size / 1024 / 1024).toFixed(2)} MB` : resourceSize,
+          fileName: resourceFile?.name,
+          fileData,
+          mimeType: resourceFile?.type,
         });
       } else {
         await fetch(`/api/brainmate/groups/${activeGroupDetail.id}/resources`, {
@@ -362,6 +382,7 @@ export const StudyGroupsModule: React.FC<StudyGroupsModuleProps> = ({
       }
       setIsAddResourceOpen(false);
       setResourceTitle('');
+      setResourceFile(null);
       triggerToast('Shared resource added to group!');
     } finally {
       setIsSubmittingResource(false);
@@ -1293,7 +1314,10 @@ export const StudyGroupsModule: React.FC<StudyGroupsModuleProps> = ({
 
                         <button
                           type="button"
-                          onClick={() => triggerToast(`Opening "${res.title}"...`)}
+                          onClick={() => {
+                            if (res.url) window.open(res.url, '_blank', 'noopener,noreferrer');
+                            else triggerToast(`"${res.title}" has no downloadable file attached.`);
+                          }}
                           className="flex items-center gap-1 text-xs text-teal-400 hover:text-teal-300 font-semibold px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-800"
                         >
                           <Download className="w-3.5 h-3.5" />
@@ -1475,6 +1499,15 @@ export const StudyGroupsModule: React.FC<StudyGroupsModuleProps> = ({
                   onChange={(e) => setSessionAgenda(e.target.value)}
                   placeholder="1. Topic walkthrough\n2. Solve exercises\n3. Q&A"
                   className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-slate-200 focus:outline-hidden focus:border-teal-500"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-slate-300">Attach File (optional, max 10 MB)</label>
+                <input
+                  type="file"
+                  onChange={(e) => setResourceFile(e.target.files?.[0] || null)}
+                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-slate-300"
                 />
               </div>
 
